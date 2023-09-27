@@ -1,0 +1,56 @@
+function [price_taker_outputs] =...
+        Price_taker(price_taker_inputs)
+
+electricity_demand =...
+    price_taker_inputs.Load_d';
+clearing_price =...
+    price_taker_inputs.Clearing_price;
+battery_capacity_MW =...
+    price_taker_inputs.storage_power;
+dispatchable =...
+    price_taker_inputs.dispatchable;
+residual_load =...
+    price_taker_inputs.residual_load;
+
+[netload_after_storage,...
+    energy,...
+    soc,...
+    power,...
+    profit] =...
+    storage_optimizer_price_taker(...
+    clearing_price,...
+    electricity_demand,...
+    battery_capacity_MW,...
+    dispatchable,...
+    residual_load);
+
+price_taker_outputs.Netload_after_storage =...
+    netload_after_storage;
+price_taker_outputs.energy = energy;
+price_taker_outputs.soc = soc;
+price_taker_outputs.power = power;
+price_taker_outputs.profit = profit;
+
+end
+
+
+   
+    
+
+    
+
+
+
+
+
+
+  
+   
+    
+      
+                   
+        
+        
+        
+        
+

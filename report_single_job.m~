@@ -1,0 +1,620 @@
+%% Generate detailed report for a single scenario
+clear
+scenarios = "ref2";
+report_options.only_plots = 0;
+dontsave = 0;
+cd outputs/
+scenarios_chr = string(scenarios');
+scenarios_chr = cellstr(scenarios_chr);
+FileNames = strings(length(scenarios_chr),1); %#ok<*NASGU> 
+all_mat_files = dir('**/*.mat');
+theFiles = all_mat_files;
+for k= 1:length(theFiles)
+    for i= 1:length(scenarios_chr)
+        if startsWith(theFiles(k).name,...
+                scenarios_chr(i))
+            baseFileName = theFiles(k).name;
+            fullFileName =...
+                fullfile(theFiles(k).folder,...
+                baseFileName);
+            load(fullFileName)
+            a = scenarios_chr{i};
+%             a = strcat('n',scenarios_chr{i});
+            r.(a).outputs = outputs;
+            r.(a).s = s;
+        end
+    end
+end
+cd ..
+clear a i k outputs s FileNames baseFileName
+clear fullFileName all_mat_files
+r2 = struct2table(r);
+o = r2;
+
+a = scenarios_chr{1};
+% a = strcat('n',scenarios_chr{1});
+r3 = struct2table(r.(a));
+r4 = struct2table(r.(a).outputs);
+r5 = struct2table(r.(a).s);
+r6 = [r4 r5];
+initial_length = length(scenarios_chr);
+drop = zeros(size(scenarios_chr));
+for i = 2 : initial_length
+    a = strcat('n',scenarios_chr{i});
+    try
+        r1 = struct2table(r.(a).outputs);
+        r2 = struct2table(r.(a).s);
+        r3 = [r1 r2];
+        r6 = vertcat(r6,r3); %#ok<AGROW> 
+    catch
+        if report_options.only_plots == 1
+            fprintf('Scenario %s not found\n', a)  
+        end
+        drop(i) = 1;
+    end
+end
+
+drop = logical(drop);
+scenarios_chr(drop) = [];
+
+varnames = r6.Properties.VariableNames;
+% clear i r1 r2 r3 r4 r5 theFiles
+to_excel_table = r6; ...clear r6 drop initial_length;
+a = scenarios_chr{1};
+% a = strcat('n',scenarios_chr{1});
+
+pop2= to_excel_table.Optimal_DeltaMW;
+Total= to_excel_table.system_cost;
+alpha= to_excel_table.alpha;
+capacity_leverager= sum(pop2.*pop2,2)*(1/1e9);
+actual_cost= Total - alpha.*capacity_leverager;
+to_excel_table= renamevars(to_excel_table,"system_cost","smoothed_cost");
+to_excel_table.system_cost= actual_cost;
+
+clear r2
+
+RA_size = size(o.(a).outputs.Optimal_DeltaMW,2);
+Periods = 7;
+num_tech = RA_size/Periods;
+tech_names = {'Coal','Gas\_CC','Gas\_CT','Geothermal',...
+    'Wind','Solar','Nuclear','Storage','Gas\_CC\_ret'};
+if num_tech == 8
+    tech_names = {'Coal','Gas\_CC\_add','Gas\_CT','Geothermal',...
+    'Wind','Solar','Nuclear','Gas\_CC\_ret'};
+end
+n = width(o);
+% System cost (billion dollars)
+batch_table = to_excel_table(:,...
+    ["system_cost","alpha","subsidy_cost"]); .... , "subsidy_cost"
+batch_table.scenario = scenarios_chr; % add scenario ID
+batch_table = movevars(batch_table,...
+    "scenario","Before","system_cost");
+% find out what makes scenarios different
+params = to_excel_table;
+% drop descriptive parameters not often compared
+% params = removevars(params,...
+%     ["slurmid", "timelimit", "cpuspertask","runtime",...
+%     "subsidy_cost", "generations","Optimal_DeltaMW",...
+%     "system_cost","smoothed_cost"]);
+remove_vars = ["slurmid", "timelimit", "cpuspertask","runtime",...
+    "subsidy_cost","generations","Optimal_DeltaMW",...
+    "system_cost","smoothed_cost"];
+for i = 1:length(remove_vars)
+    try
+        params = removevars(params, remove_vars(i));
+    catch
+    end
+end
+
+% for i= 1:width(params)  % this piece needs revieweing
+%     drop = params(:,i); % it doesn't always work
+%     drop = unique(drop);
+%     sz = height(drop);
+%     if sz == n
+%         keep = params(:,i);
+%     end
+% end
+% params_differ = logical(exist('keep','var'));
+% if params_differ
+%     % add varying parameters to summary table
+%     % only works for one varying parameters
+%     batch_table.varying_param = table2array(keep);
+%     name = char(keep.Properties.VariableNames);
+%     batch_table = renamevars(batch_table,"varying_param",name);
+% else
+%     % if nothing, then they are replications and
+%     % will be inspected for convergence
+%     if report_options.only_plots == 1
+%         disp('No distinct parameters; scenarios are replications and will be checked for convergence')
+%     end
+% end
+
+batch_table.cost_with_subsidy=...
+    batch_table.system_cost+batch_table.subsidy_cost;
+
+% %% Get Wind, Solar & Storage Added
+for i= 1:n
+    a = scenarios_chr{i};
+%     a = strcat('n',scenarios_chr{i}); % scenario name
+    outputs = o.(a).outputs;
+    x = outputs.Optimal_DeltaMW;
+    num_tech = length(x)/Periods;
+    x = reshape(x,num_tech,Periods);
+    x = sum(x,2);
+
+    coal = 1;
+    gas_cc = 2;
+    gas_ct = 3;
+    biomass = 4;
+    wind = 5;
+    solar = 6;
+    nuclear = 7;
+
+    if num_tech>8
+        storage = 8;
+        gas_cc_ret = 9;
+        storage_added = x(storage);
+        batch_table.storage_added(i) = round(storage_added);
+    else
+        gas_cc_ret = 8;
+    end
+    coal_added = x(coal);
+    gas_cc_added = x(gas_cc);
+    gas_ct_added = x(gas_ct);
+    biomass_added = x(biomass);
+    wind_added = x(wind);
+    solar_added = x(solar);
+    nuclear_added = x(nuclear);
+    gas_cc_ret_added = x(gas_cc_ret);
+    batch_table.coal_added(i) = round(coal_added);
+    batch_table.gas_cc_added(i) = round(gas_cc_added);
+    batch_table.gas_ct_added(i) = round(gas_ct_added);
+    batch_table.biomass_added(i) = round(biomass_added);
+    batch_table.wind_added(i) = round(wind_added);
+    batch_table.solar_added(i) = round(solar_added);
+    batch_table.nuclear_added(i) = round(nuclear_added);
+    batch_table.gas_cc_ret_added(i) = round(gas_cc_ret_added);
+end
+% %% Get Emissions
+for i= 1:n
+    if report_options.only_plots == 1
+        fprintf('Getting detailed data for scenario %d out of %d.\n', i,n);
+    end
+    a = scenarios_chr{i};
+%     a = strcat('n',scenarios_chr{i}); % scenario name
+    s = o.(a).s;
+    outputs = o.(a).outputs;
+    x = outputs.Optimal_DeltaMW;
+    s.report = 1;
+    [s] = initializer(s);
+    [cc.(a)] = cashflows(s,x);
+    emissions = cc.(a).o.emissions;
+    emissions = cell2mat(struct2cell(emissions));
+    batch_table.emissions(i) = sum(emissions)*5; % tons of CO2e
+    batch_table.region(i) = s.region;
+    % clear c
+end
+
+% get ICAP per period
+years = 2020:5:2050;
+i=1;
+current_year = 2015;
+plant = s.plant;
+[icap] = get_installed_capacity(plant);
+icap(icap.technologies == "TOTAL",:) = [];
+icap_MW = zeros(length(icap.installed_capacity_MW(:)),Periods+1);
+icap_MW(:,1) = icap.installed_capacity_MW(:);
+icap_techs = icap.technologies(:);
+icap_delta = zeros(size(icap,1),Periods);
+for i=1:Periods
+    current_year = strcat('y',string(years(i)));
+    plant = cc.(a).o.all_plants.(current_year);
+    [new_icap] = get_installed_capacity(plant);
+    new_icap(new_icap.technologies == "TOTAL",:) = [];
+    A = icap; B = new_icap;
+    [tf, idx] = ismember(A(:,1), B(:,1));
+    icap_MW(tf,1+i) = B.installed_capacity_MW(idx(tf));
+    icap_delta(:,i) = icap_MW(:,1+i)-icap_MW(:,i);
+end
+icap_delta = table(icap_delta,'RowNames',string(icap.technologies));
+
+ps = 5; % period size (years per period)
+colors = [...
+    0.4940 0.1840 0.5560;...    % Biomass
+    0      0.4470 0.7410;...    % Coal
+    0      0      0     ;...    % Oil
+    1      0      0     ;...    % Storage
+    0      0      1     ;...    % Hydro
+    0.6350 0.0780 0.1840;...    % Nuclear
+    0.3010 0.7450 0.9330;...    % Solar
+    0.4660 0.6740 0.1880;...    % Wind
+    0.9290 0.6940 0.1250;...    % Gas CT
+    0.8500 0.3250 0.0980;...    % Gas CC add
+    ];      
+    
+tech_display_names = icap.technologies;
+tech_display_names = renamecats(tech_display_names,...
+    'GAS_CC','GAS\_CC');
+tech_display_names = renamecats(tech_display_names,...
+    'GAS_CT','GAS\_CT');
+
+figure
+b = bar(([2015 2020:ps:2020+ps*(Periods-1)]),...
+    (icap_MW')/1e3,...
+    'stacked','FaceColor','flat');
+
+legend(tech_display_names,"Location","eastoutside");
+colorss = colors(1:height(icap),:);
+for k = 1:height(icap)
+    b(k).CData = colorss(k,:);
+end
+ytickformat('%,.0f')
+title('Installed capacity, GW','FontSize',12)
+set(gca,'FontSize',12)
+% xline(2017.5, '--k', 'LineWidth',1.5)
+
+% scenarios_str = int2str(scenarios);
+% scenarios_str = convertCharsToStrings(scenarios_str);
+
+% stage_path = pwd;
+% cd ..
+% root = pwd;
+% if dontsave == 0
+%     cd Report/
+% mkdir(scenarios_str)
+% cd(scenarios_str)
+dest_dir = theFiles.folder;
+saveas(gcf,strcat(dest_dir,'\','fig_01_ICAP_GW.png'))
+close all
+% end
+% cd(stage_path)
+
+
+
+
+% get aditions and retirements per period
+colors = [...
+    0      0.4470 0.7410;...    % Coal
+    0.8500 0.3250 0.0980;...    % Gas CC add
+    0.9290 0.6940 0.1250;...    % Gas CT
+    0.4940 0.1840 0.5560;...    % Biomass
+    0.4660 0.6740 0.1880;...    % Wind
+    0.3010 0.7450 0.9330;...    % Solar
+    0.6350 0.0780 0.1840;...    % Nuclear
+    1,     0,     0;...         % Storage
+    0,      0,    1;...         % Gas CC retire
+    ];           
+
+x = cc.(a).o.pop2;
+% xx = x; % keep x in original format 
+num_tech = size(x,1);
+% x = reshape(xx,num_tech,Periods);
+% x(2,:) = x(2,:)+x(end,:); % merge gas CC R&As
+% x(end,:) = []; % remove gas CC rets
+% num_tech = height(x);
+
+figure
+b = bar((2020:ps:2020+ps*(Periods-1)),...
+    x'/1e3,...
+    'stacked','FaceColor','flat');
+colorss = colors(1:num_tech,:);
+for k = 1:num_tech
+    b(k).CData = colorss(k,:);
+end
+legend(tech_names(1:num_tech),"Location","eastoutside");
+ytickformat('%,.0f')
+title('Additions and retirements every five years, GW','FontSize',14)
+set(gca,'FontSize',12)
+if dontsave == 0
+saveas(gcf,strcat(dest_dir,'/','fig_02_R&A_GW.png'))
+close all
+end
+
+for i=1:n
+    if batch_table.region(i) == 1
+        batch_table.region_str(i) = "MISO";
+    else
+        batch_table.region_str(i) = "NYISO";
+    end
+end
+
+% generation by technology category
+
+% colors = [...
+%     0.4940 0.1840 0.5560;...    % Biomass
+%     0.6350 0.0780 0.1840;...    % Nuclear
+%     0.8500 0.3250 0.0980;...    % Gas CC
+%     0.4660 0.6740 0.1880;...    % Wind
+%     0.3010 0.7450 0.9330;...    % Solar
+%     0      0      1     ;...    % Hydro
+%     0.9290 0.6940 0.1250;...    % Gas CT
+%     0      0.4470 0.7410;...    % Coal
+%     0      0      0     ;...    % Oil
+%     ...1      0      0     ;...    % Storage
+%     1      0      1     ;...    % Penalty
+%     ];      
+ps = 5; % period size (years per period)
+colors = [...
+    0.4940 0.1840 0.5560;...    % Biomass
+    0      0.4470 0.7410;...    % Coal
+    0      0      0     ;...    % Oil
+    0      0      1     ;...    % Hydro
+    0.6350 0.0780 0.1840;...    % Nuclear
+    0.3010 0.7450 0.9330;...    % Solar
+    0.4660 0.6740 0.1880;...    % Wind
+    0.9290 0.6940 0.1250;...    % Gas CT
+    0.8500 0.3250 0.0980;...    % Gas CC
+    ...1      0      0     ;...    % Storage
+    1      0      1     ;...    % Penalty
+    ];
+
+% get all technology categories
+plant = s.plant;
+cats = plant.Category;
+techs_all = unique(cats);
+techs_all = renamecats(techs_all,"OWN","PENALTY");
+techs_all = removecats(techs_all,'STORAGE'); techs_all(4) = [];
+
+% fossil_techs_all = removecats(techs_all,['STORAGE', 'HYDRO', 'SOLAR', 'WIND']); 
+% fossil_techs_all([4 6 7]) = [];
+% 
+for i=1:2:Periods
+    current_year = strcat('y',string(years(i)));
+
+    % fossil generation
+    plant = cc.(a).o.dispatched_plants.(current_year);
+    MW = cc.(a).o.dispatch.(current_year);
+    cats = plant.Category;
+    techs = unique(cats);
+    fossil_techs = techs;
+    fossil_techs = renamecats(fossil_techs,"OWN","PENALTY");
+    MW_t = zeros(length(techs),8760);
+    for t= 1:length(techs)
+        rows = cats == techs(t);
+        MW_t(t,:) = sum(MW(rows,:),1);
+    end
+
+    % renewable generation
+    plant = cc.(a).o.all_plants.(current_year);
+    cats = plant.Category;
+    techs = unique(cats);
+    techs = renamecats(techs,"OWN","PENALTY");
+    capacity = plant.Capacity_MW;
+    H = cats == 'HYDRO';
+    S = cats == 'SOLAR';
+    W = cats == 'WIND';
+    Var_Energy = s.Var_Energy;
+    hydro_MW = (sum(capacity(H))*Var_Energy.Hydro)';
+    solar_MW = (sum(capacity(S))*Var_Energy.Solar)';
+    wind_MW = (sum(capacity(W))*Var_Energy.Wind)';
+    
+
+    % join fossil + renewable generation
+%     try
+%     MWh = [...
+%         MW_t(1,:);...
+%         MW_t(4,:);...
+%         MW_t(6,:);...
+%         wind_MW;...
+%         solar_MW;...
+%         hydro_MW;...
+%         MW_t(5,:);...
+%         MW_t(2,:);...
+%         MW_t(3,:);...
+%         MW_t(7,:)];
+%     catch
+        MWh = zeros(length(techs_all),width(MW_t));
+        for t= 1:length(fossil_techs)
+            row = techs_all == fossil_techs(t);
+            MWh(row,:) = MW_t(t,:);
+        end
+        row = techs_all == "HYDRO"; MWh(row,:) = hydro_MW;
+        row = techs_all == "SOLAR"; MWh(row,:) = solar_MW;
+        row = techs_all == "WIND"; MWh(row,:) = wind_MW;
+%     end
+
+%     techs = renamecats(techs,"OWN","PENALTY");
+%     techs = removecats(techs,'STORAGE');
+%     techs(4) = [];
+
+    % letter following underscore gets subscripted;
+    % backward slash prevents this
+    techs = techs_all;
+    techs = renamecats(techs,"GAS_CT","GAS\_CT");
+    techs = renamecats(techs,"GAS_CC","GAS\_CC");
+    techs_s = strings(length(techs),1);
+    for t= 1:length(techs)
+        tech_s(t) = string(techs(t));
+    end
+    techs = tech_s;
+
+    % plot dispatch
+    figure
+    use_weeks =1;
+    wide = 600; subplot_columns = 1;
+    tall = 200; subplot_rows = 5;
+    c = 0;
+    map_hours = readmatrix([root,'/map_months_to_hours.csv']);
+    if use_weeks == 1
+        map_hours = readmatrix([root,'/map_months_to_hours_1week.csv']);
+    end
+    month_names = "";
+    month_names = ["January"; "February"; "March"; "April"; "May"; "June"; "July"; "August"; "September"; "October"; "November"; "December"];
+    months_to_plot = 1:3:12+1; % 4 months, plus space for legends
+    last_plot = months_to_plot(4);
+    for m= 1:3:12+1
+        c = c+1;
+        if m > last_plot
+            ax = subplot(subplot_rows,subplot_columns,c,'Visible','off');
+            axPos = ax.Position;
+            delete(ax);
+            hL=legend(techs,'Orientation','horizontal','NumColumns',5);
+            hL.Position(1:2) = axPos(1:2);
+            break
+        end
+        hAxes(c) = subplot(subplot_rows,subplot_columns,c); %#ok<SAGROW>
+        start = map_hours(m,1);
+        finish = map_hours(m,2);
+        b = area((MWh(:,start:finish)'/1e3),'EdgeColor','none');
+        hold on
+        l = plot(s.Load2(i,start:finish)/1e3,'Color',[1 1 0],'LineWidth',1.5);
+        hold off
+        ylabel(month_names(m))
+        for t=1:height(MWh); b(t).FaceColor = colors(t,:); end
+        if use_weeks == 1; xlim([1 168]); xticks = 0:12:168; xticklabels([12:12:168]); end
+        if m~=last_plot; set(gca,'xtick',[]); set(gca,'xticklabel',[]); end
+        if m == last_plot; xlabel('Hour of the week'); end
+        ytickformat('%,.0f')
+        set(gca,'FontSize',12)
+    end % end for m=1:12 (months)
+        %     legend(techs,"Location","eastoutside");
+    linkaxes(hAxes, 'y' )
+    set(gcf,'Position',[0 0 wide*subplot_columns tall*subplot_rows])
+    sgtitle({'Hourly dispatch by technology group, GWh';...
+        '(for selected weeks and months)'},'FontSize',14)
+    if dontsave == 0
+    saveas(gcf,strcat(dest_dir,'/','fig_03_',string(i),'_dispatch_GWh.png'))
+    close all
+    end
+    clear xticks
+    % plot storage operation
+    power = cc.(a).o.storage_power.(current_year);
+    figure
+    wide = 600; subplot_columns = 1;
+    tall = 200; subplot_rows = 4;
+    c = 0;
+    for m= 1:3:12
+        c = c+1;
+        hAxes(c) = subplot(subplot_rows,subplot_columns,c); %#ok<SAGROW>
+        start = map_hours(m,1);
+        finish = map_hours(m,2);
+        b = plot((power(1,start:finish)/1e3));
+%         hold on
+%         l = plot(s.Load2(i,start:finish)/1e3,'Color',[1 1 0],'LineWidth',1.5);
+%         hold off
+        ylabel(month_names(m))
+%         for t=1:height(MWh); b(t).FaceColor = colors(t,:); end
+        if use_weeks == 1; xlim([1 168]); xticks(24:24:168); end
+        if m~=last_plot; set(gca,'xticklabel',[]); end
+        if m == last_plot; xlabel('Hour of the week'); end
+        ytickformat('%,.0f')
+        set(gca,'FontSize',12)
+    end % end for m=1:12 (months)
+    linkaxes(hAxes, 'y' )
+    set(gcf,'Position',[0 0 wide*subplot_columns tall*subplot_rows])
+    sgtitle({'Storage charge (>0) and discharge (<0), GWh';...
+        '(for selected weeks and months)'},'FontSize',14)
+    if dontsave == 0
+    saveas(gcf,strcat(dest_dir,'/','fig_04_',string(i),'_storage_GWh.png'))
+    close all
+    end
+end             % end for i=1:Periods
+
+
+% CAPEX, FOM, VOM, and penalty costs
+CAPX = cc.(a).o.cap_cost;
+VOM = zeros(1,Periods);
+FUEL = zeros(1,Periods);
+FOM = zeros(1,Periods);
+% TOTAL = zeros(1,Periods);
+for i=1:Periods
+    current_year = strcat('y',string(years(i)));
+    VOM(i) = cc.(a).o.VOM_cost.(current_year);
+    FUEL(i) = cc.(a).o.fuel_cost.(current_year);
+    FOM(i) = cc.(a).o.fixed_cost.(current_year);
+%     TOTAL(i) = VOM(i) + FUEL(i) + FOM(i) + CAPX(i);
+end
+costs = [FOM;VOM;FUEL;CAPX];
+
+figure
+b = bar((2020:ps:2020+ps*(Periods-1)),...
+    costs'/1e9,...
+    'stacked','FaceColor','flat');
+legend(["Fixed O&M","Variable O&M", "Fuel costs", "New Investments"],"Location","east");
+ytickformat('%,.0f')
+title('System costs by concept, billions of dollars','FontSize',14)
+set(gca,'FontSize',12)
+if dontsave == 0
+saveas(gcf,strcat(dest_dir,'/','fig_05_CostsByConcept.png'))
+close all
+end
+
+% Emissions
+CO2 = zeros(1,Periods);
+for i=1:Periods
+    current_year = strcat('y',string(years(i)));
+    CO2(i) = cc.(a).o.emissions.(current_year);
+end  % CO2 in lbs
+CO2 = CO2 * 453.592 * (1/1e12); % convert from lbs to million tons
+figure
+b = bar((2020:ps:2020+ps*(Periods-1)),CO2);
+ytickformat('%,.0f')
+title('Emissions, million tons of CO2e','FontSize',14)
+set(gca,'FontSize',12)
+if dontsave == 0
+saveas(gcf,strcat(dest_dir,'/','fig_06_CO2e.png'))
+close all
+end
+
+% Annualize emissions (adapted from cashflows)
+Year = 2016;
+year = Year+4:5:(Periods)*5+(Year);
+Ind = 5:5:Periods*5;
+GHG = reshape(CO2,Periods,1);
+year2 = Year:(Year)+(Periods*5);
+year2([Ind,end]) = [];
+GHG_ann = zeros(s.BPeriods*5,1);
+GHG_ann(Ind,1) = GHG;
+GHG_ann((Periods*5+1):end,1) = repmat(GHG_ann(Periods*5,:),20,1);
+GHG_ann(GHG_ann==0) = interp1(year(1:Periods)',GHG,year2','linear');
+GHG_ann(1:4,:) = interp1(year(1:Periods)',GHG,year2(1:4),'linear','extrap');
+
+
+% clearing price
+prices = zeros(Periods,8760);
+for i=1:Periods
+    y = strcat('y',string(years(i)));
+    prices(i,:) = cc.(a).o.clearing_price.(y);
+end
+
+figure
+use_weeks =1;
+wide = 600; subplot_columns = 1;
+tall = 200; subplot_rows = 5;
+c = 0;
+map_hours = readmatrix([root,'/map_months_to_hours.csv']);
+if use_weeks == 1
+    map_hours = readmatrix([root,'/map_months_to_hours_1week.csv']);
+end
+month_names = "";
+month_names = ["January"; "February"; "March"; "April"; "May"; "June"; "July"; "August"; "September"; "October"; "November"; "December"];
+months_to_plot = 1:3:12+1; % 4 months, plus space for legends
+last_plot = months_to_plot(4);
+for m= 1:3:12+1
+    c = c+1;
+    if m > last_plot
+        ax = subplot(subplot_rows,subplot_columns,c,'Visible','off');
+        axPos = ax.Position;
+        delete(ax);
+        hL=legend(string(years),'Orientation','horizontal','NumColumns',Periods);
+        hL.Position(1:2) = axPos(1:2);
+        break
+    end
+    hAxes(c) = subplot(subplot_rows,subplot_columns,c); %#ok<SAGROW>
+    start = map_hours(m,1);
+    finish = map_hours(m,2);
+    b = plot(prices(:,start:finish)','LineWidth',1.5);
+    ylabel(month_names(m))
+    if use_weeks == 1; xlim([1 168]); xticks(12:12:168); end
+    if m~=last_plot; set(gca,'xtick',[]); set(gca,'xticklabel',[]); end
+    if m == last_plot; xlabel('Hour of the week'); end
+    ytickformat('%,.0f')
+    set(gca,'FontSize',12)
+end % end for m=1:12 (months)
+set(gcf,'Position',[0 0 wide*subplot_columns tall*subplot_rows])
+sgtitle({'Clearing prices, $/MWh';...
+    '(for selected weeks and months)'},'FontSize',14)
+if dontsave == 0
+saveas(gcf,strcat(dest_dir,'/','fig_07_',string(i),'_prices_$perMWh.png'))
+close all
+end
