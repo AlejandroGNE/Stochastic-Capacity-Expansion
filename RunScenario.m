@@ -3,6 +3,7 @@
 % locate yourself in the right directory
 clear
 rootdir= pwd;
+cd model/
 %% Define project, set assumptions
 s.region =                3;
 s.Renewable_standard =    0;
