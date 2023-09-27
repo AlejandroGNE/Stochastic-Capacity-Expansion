@@ -14,6 +14,7 @@ This model is written in MATLAB. You will need the following packages: (TODO)
 A ficticious example is included. Start from the script 'RunScenario.m', where you can specify a model configuration.
 
 TODO:
+- clarify packages/add-ons/toolboxes needed
 - explain available model configurations
 - switch from mat to csv files so they are visible
 - how to run a custom case
@@ -24,3 +25,4 @@ TODO:
         - existing generators
         - fuel prices
 - how to visualize outputs
+- host a matlab online server to test?
